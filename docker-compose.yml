@@ -1,0 +1,164 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ragforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragforge}
+      POSTGRES_DB: ${POSTGRES_DB:-ragforge}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Host-side 5433, not 5432 — avoids colliding with any Postgres
+      # already running natively on the host's default port. Containers
+      # still reach this one at postgres:5432 over the compose network
+      # regardless of the host-side mapping; only host tools (a GUI client,
+      # `psql` run directly on Windows) need the 5433 port.
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ragforge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"
+    # No healthcheck: the official image's minimal base doesn't reliably
+    # ship a shell utility to probe its own port with, and the app already
+    # degrades gracefully if Qdrant isn't reachable yet at boot (Phase 3's
+    # `ensure_collection()` logs a warning instead of crashing) — so backend
+    # and worker only need start-order-after, not wait-until-healthy, here.
+
+  migrate:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ragforge}:${POSTGRES_PASSWORD:-ragforge}@postgres:5432/${POSTGRES_DB:-ragforge}
+    command: alembic upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ragforge}:${POSTGRES_PASSWORD:-ragforge}@postgres:5432/${POSTGRES_DB:-ragforge}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      QDRANT_URL: http://qdrant:6333
+      # LLM_PROVIDER/LLM_MODEL/EMBEDDING_*/RERANK_PROVIDER come from .env —
+      # switch between the free Ollama path and real Anthropic/Voyage keys
+      # entirely by editing .env, no compose changes needed. The one thing
+      # that must be set here rather than in .env: Ollama runs on the host,
+      # not in a container, so it's only reachable from inside Compose at
+      # host.docker.internal (Docker Desktop's DNS name for the host) —
+      # "localhost" from a container's perspective means the container itself.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    volumes:
+      - backend_storage:/app/storage
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  worker:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ragforge}:${POSTGRES_PASSWORD:-ragforge}@postgres:5432/${POSTGRES_DB:-ragforge}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      QDRANT_URL: http://qdrant:6333
+      # See the `backend` service's comment above — same reasoning applies
+      # here since ingestion (embedding calls) runs in this worker process.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    command: celery -A app.workers.celery_app worker --loglevel=info
+    # Overrides the backend image's Dockerfile HEALTHCHECK (curl against
+    # :8000/api/v1/health) — that's the FastAPI process's health endpoint,
+    # and this container runs `celery worker` instead, which serves nothing
+    # on that port. Without this, Docker would report the worker unhealthy
+    # forever even when it's running correctly (confirmed by actually
+    # bringing the stack up: the worker connects to Redis and registers its
+    # task fine, but was flagged unhealthy until this override was added).
+    healthcheck:
+      disable: true
+    volumes:
+      - backend_storage:/app/storage
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      # Host-side 3002 — port 3001 was already bound by an unrelated
+      # process on the machine this was first deployed on. Grafana still
+      # listens on 3000 *inside* the container; only the host mapping moved.
+      - "3002:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  backend_storage:
+  prometheus_data:
+  grafana_data:

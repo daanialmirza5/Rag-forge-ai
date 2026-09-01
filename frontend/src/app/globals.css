@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 12%;
+    --primary: 245 58% 51%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 20%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 240 5% 94%;
+    --accent-foreground: 240 6% 20%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 245 58% 51%;
+    --radius: 0.625rem;
+
+    /* Chart categorical palette — fixed hue order, validated for CVD
+       separation + contrast against the light card surface (see
+       docs/PROGRESS.md, dataviz skill). Never reassign per-filter. */
+    --chart-1: #2a78d6; /* blue */
+    --chart-2: #1baf7a; /* aqua */
+    --chart-3: #eda100; /* yellow */
+    --chart-4: #008300; /* green */
+    --chart-grid: 240 6% 90%;
+    --chart-axis: 240 6% 78%;
+    --chart-muted: 240 4% 46%;
+  }
+
+  :root[data-theme="dark"] {
+    --background: 240 10% 8%;
+    --foreground: 0 0% 96%;
+    --card: 240 10% 11%;
+    --card-foreground: 0 0% 96%;
+    --popover: 240 10% 11%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 245 70% 68%;
+    --primary-foreground: 240 10% 8%;
+    --secondary: 240 6% 16%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 6% 16%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 6% 18%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 63% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 20%;
+    --input: 240 6% 20%;
+    --ring: 245 70% 68%;
+
+    /* Same four hues, stepped for the dark surface (see palette note above). */
+    --chart-1: #3987e5;
+    --chart-2: #199e70;
+    --chart-3: #c98500;
+    --chart-4: #008300;
+    --chart-grid: 240 6% 20%;
+    --chart-axis: 240 6% 30%;
+    --chart-muted: 240 5% 65%;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --background: 240 10% 8%;
+      --foreground: 0 0% 96%;
+      --card: 240 10% 11%;
+      --card-foreground: 0 0% 96%;
+      --popover: 240 10% 11%;
+      --popover-foreground: 0 0% 96%;
+      --primary: 245 70% 68%;
+      --primary-foreground: 240 10% 8%;
+      --secondary: 240 6% 16%;
+      --secondary-foreground: 0 0% 96%;
+      --muted: 240 6% 16%;
+      --muted-foreground: 240 5% 65%;
+      --accent: 240 6% 18%;
+      --accent-foreground: 0 0% 96%;
+      --destructive: 0 63% 60%;
+      --destructive-foreground: 0 0% 100%;
+      --border: 240 6% 20%;
+      --input: 240 6% 20%;
+      --ring: 245 70% 68%;
+
+      --chart-1: #3987e5;
+      --chart-2: #199e70;
+      --chart-3: #c98500;
+      --chart-4: #008300;
+      --chart-grid: 240 6% 20%;
+      --chart-axis: 240 6% 30%;
+      --chart-muted: 240 5% 65%;
+    }
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
+  }
+}
