@@ -1,84 +1,157 @@
 # RAGForge AI
 
-Production-grade, multi-tenant **Retrieval-Augmented Generation (RAG) SaaS platform**. Upload documents, get hybrid (semantic + keyword) search with reranking and cited answers, all wrapped in a workspace/team-based dashboard with usage analytics and an admin panel.
+Multi-tenant **Retrieval-Augmented Generation (RAG) SaaS Platform** with hybrid semantic + keyword search, cross-encoder reranking, LangGraph state orchestration, and verifiable citations.
 
-> Status: feature-complete through code review, security review, and a performance pass — and `docker compose up` has now actually been run end-to-end, with the full backend test suite (71 tests) passing against real Postgres/Redis/Qdrant. See [`docs/PROGRESS.md`](docs/PROGRESS.md) for exactly what's been verified and how.
+[![CI](https://github.com/daanialmirza5/Rag-forge-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/daanialmirza5/Rag-forge-ai/actions/workflows/ci.yml)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js&logoColor=white)](https://nextjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Qdrant](https://img.shields.io/badge/Vector_DB-Qdrant-DC2626?logo=qdrant&logoColor=white)](https://qdrant.tech/)
+[![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-1C3C3C)](https://langchain-ai.github.io/langgraph/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## Stack
+> **Status**: Feature-complete through security review and performance hardening. The full backend test suite (71 tests) passes against live Postgres/Redis/Qdrant service containers. See [`docs/PROGRESS.md`](docs/PROGRESS.md) for verification logs.
 
-| Layer | Choice | Why |
+---
+
+## Overview
+
+Most RAG demos are toy scripts limited to basic top-k cosine similarity on a single document. **RAGForge AI** is built as a multi-tenant SaaS architecture designed for real-world enterprise documents:
+- **Multi-Tenant Isolation**: Multi-level hierarchy (`Organization` → `Workspace` → `Documents` → `Chunks`) with tenant-scoped payload filtering in Qdrant and relational metadata in PostgreSQL.
+- **Hybrid Retrieval & Reranking**: Combines dense semantic vector embeddings (Voyage AI or local Ollama) with sparse keyword retrieval and cross-encoder reranking (`rerank-2`) before context injection.
+- **Inspectable State Machine**: Implemented via LangGraph (`Retrieve` → `Rerank` → `Generate` → `Verify & Cite`) with full per-step execution traces.
+- **Asynchronous Ingestion**: Offloads document parsing, OCR, recursive text chunking, and embedding generation to background Celery workers backed by Redis.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph Frontend ["Web Client (Next.js 15 + Tailwind + shadcn/ui)"]
+        Dashboard[Workspace Dashboard]
+        ChatUI[RAG Chat & Citation Explorer]
+        AdminPanel[Organization & Usage Admin]
+    end
+
+    subgraph API ["Gateway & API Layer (FastAPI)"]
+        AuthRouter[/api/v1/auth - JWT & OAuth2/]
+        DocRouter[/api/v1/documents - Ingestion Trigger/]
+        ChatRouter[/api/v1/chat - Query & Streaming/]
+        LangGraphEngine[LangGraph State Machine\nRetrieve → Rerank → Generate → Cite]
+    end
+
+    subgraph Workers ["Async Processing (Celery)"]
+        IngestionWorker[Document Parsing & OCR]
+        ChunkingEngine[Recursive Chunking & Tokenizer]
+        EmbeddingWorker[Embedding Dispatcher]
+    end
+
+    subgraph Storage ["Datastores & Queues"]
+        Postgres[(PostgreSQL 16\nTenants | Workspaces | Chunks | Chat)]
+        Qdrant[(Qdrant Vector DB\nHNSW Index + Tenant Filters)]
+        Redis[(Redis\nCelery Broker & Rate Limiting)]
+    end
+
+    Frontend -->|JWT Bearer Auth| API
+    DocRouter -->|Push Task| Redis
+    Redis --> Workers
+    Workers -->|Store Vectors| Qdrant
+    Workers -->|Store Metadata| Postgres
+    ChatRouter --> LangGraphEngine
+    LangGraphEngine -->|Hybrid Search| Qdrant
+    LangGraphEngine -->|Fetch History & Meta| Postgres
+```
+
+---
+
+## Technology Stack
+
+| Layer | Choice | Rationale |
 |---|---|---|
-| Backend API | FastAPI (Python 3.12, async) | Async-native, first-class Pydantic validation, great for AI I/O-bound workloads |
-| Relational DB | PostgreSQL 16 | Tenant/user/workspace/document metadata, chat history, billing/usage |
-| Vector DB | Qdrant | Dedicated ANN index (HNSW) for embeddings at scale, payload filtering per workspace |
-| Cache / Queue broker | Redis | Celery broker + result backend, rate limiting, session cache |
-| Async workers | Celery | Document ingestion, OCR, chunking, embedding — off the request path |
-| LLM | Anthropic Claude (`claude-opus-4-8` default) **or** Ollama (free, local — `llama3.1:8b` etc.) | Generation, query rewriting, agentic RAG steps; swap via `LLM_PROVIDER` |
-| Embeddings | Voyage AI (`voyage-3-large` default) **or** Ollama (free, local — `nomic-embed-text`) | Swap via `EMBEDDING_PROVIDER`; changes vector dimensions, see Quickstart |
-| Reranking | Voyage AI rerank (`rerank-2`) **or** none (pass-through) | Cross-encoder reranking of hybrid retrieval candidates; `RERANK_PROVIDER=none` has no free equivalent, so it's a no-op |
-| Orchestration | LangGraph | Explicit, inspectable RAG state machine (retrieve → rerank → generate → cite) |
-| Frontend | Next.js 15 (App Router) + TypeScript + Tailwind + shadcn/ui | Dashboard, chat UI, admin panel |
-| Auth | JWT (access + refresh), OAuth2 password flow | Stateless API auth; refresh tokens stored hashed in Postgres |
-| Monitoring | Prometheus + Grafana, structlog | Metrics + structured logs |
-| CI/CD | GitHub Actions | Lint, type-check, test (real Postgres/Redis/Qdrant service containers), Docker image build verification |
-| Deployment | Docker Compose | `docker compose up` brings up the full stack locally |
+| **Backend API** | FastAPI (Python 3.12, async) | Asynchronous I/O-bound throughput, native Pydantic v2 validation |
+| **Relational DB** | PostgreSQL 16 | ACID transactions for tenants, users, documents, messages, and usage billing |
+| **Vector Database** | Qdrant | Dedicated HNSW ANN index with payload filtering per tenant/workspace |
+| **Cache & Queue** | Redis | High-speed Celery task broker, rate limiting, and session cache |
+| **Async Workers** | Celery | Asynchronous ingestion pipeline (PDF parsing, OCR, chunking, embedding) |
+| **LLM Inference** | Anthropic Claude (`claude-3-5-sonnet`) or Ollama (`llama3.1:8b`) | Query rewriting, synthesis, and citation generation (swappable provider) |
+| **Embeddings** | Voyage AI (`voyage-3-large`) or Ollama (`nomic-embed-text`) | High-dimensional dense embeddings with provider abstraction |
+| **Reranking** | Voyage AI Rerank (`rerank-2`) or Passthrough | Cross-encoder reranking of hybrid search candidate documents |
+| **Orchestration** | LangGraph | Deterministic, inspectable RAG state machine |
+| **Frontend** | Next.js 15 (App Router) + TypeScript + Tailwind | Responsive dashboard, streaming chat UI, and administrative telemetry |
+| **Monitoring** | Prometheus + Grafana, structlog | Real-time service metrics and structured audit logging |
+| **CI/CD** | GitHub Actions | Automated linting, type-checking, and service-container integration tests |
 
-All provider integrations (LLM, embeddings, reranker, vector store) sit behind an interface in `backend/app/ai/*/base.py` so a provider can be swapped via configuration without touching call sites.
+---
 
-## Repository layout
+## Repository Layout
 
+```text
+Rag-forge-ai/
+├── backend/                  # FastAPI service, Celery workers, Alembic migrations, test suite
+├── frontend/                 # Next.js 15 App Router client application
+├── infra/                    # Prometheus configuration, Grafana dashboards
+├── docs/                     # Technical architecture, database schemas, progress logs
+├── .github/workflows/        # Automated CI/CD workflows
+├── docker-compose.yml        # Multi-container local deployment
+├── .env.example              # Environment variables template
+├── LICENSE                   # MIT License
+└── README.md
 ```
-backend/     FastAPI service, Celery workers, Alembic migrations, tests, Dockerfile
-frontend/    Next.js app, Dockerfile
-infra/       Prometheus scrape config, Grafana provisioning + dashboards
-docs/        Architecture, database design, API reference, progress log
-.github/     CI/CD workflows
-docker-compose.yml
-```
+
+---
 
 ## Quickstart
 
-**Option A — free, fully local (no API keys, no cost):**
+### Option A — Free Local Stack (Ollama)
 
 ```bash
-# 1. Install Ollama: https://ollama.com
+# 1. Pull local models in Ollama
 ollama pull llama3.1:8b
 ollama pull nomic-embed-text
 
-# 2. Bring up the stack
-cp .env.example .env          # already defaults to the Ollama path — no editing needed
+# 2. Configure environment and launch containers
+cp .env.example .env
 docker compose up --build
 ```
 
-**Option B — real Claude + Voyage (better answer quality, costs money per API call):**
+### Option B — Cloud Providers (Claude + Voyage AI)
 
 ```bash
 cp .env.example .env
-# edit .env: set ANTHROPIC_API_KEY / VOYAGE_API_KEY, then change
-# LLM_PROVIDER=anthropic, EMBEDDING_PROVIDER=voyage, EMBEDDING_DIMENSIONS=1024,
-# RERANK_PROVIDER=voyage (see the comments in .env.example)
+# Set ANTHROPIC_API_KEY and VOYAGE_API_KEY in .env:
+# LLM_PROVIDER=anthropic, EMBEDDING_PROVIDER=voyage, EMBEDDING_DIMENSIONS=1024, RERANK_PROVIDER=voyage
 docker compose up --build
 ```
 
-Either way, this brings up Postgres, Redis, Qdrant, the FastAPI backend (after running migrations), a Celery worker, the Next.js frontend, Prometheus, and Grafana. Ollama itself runs on your host machine (not in a container) — the backend/worker reach it at `host.docker.internal:11434`, Docker Desktop's DNS name for the host.
+Once running:
+- **Web Application**: [http://localhost:3000](http://localhost:3000)
+- **API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Prometheus Metrics**: [http://localhost:9090](http://localhost:9090)
+- **Grafana Telemetry**: [http://localhost:3002](http://localhost:3002)
 
-- Web app: http://localhost:3000
-- API docs: http://localhost:8000/docs
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3002 (anonymous viewer access; admin login is `admin` / `admin` — change `GF_SECURITY_ADMIN_PASSWORD` in `docker-compose.yml` for anything beyond local use)
+---
 
-The first account you register is a regular user in a new organization it owns — there's no self-service way to become a platform superuser (by design). To reach the admin panel (`/admin` in the web app), grant it directly in Postgres once you have an account:
+## Testing & Quality
 
-```sql
-UPDATE users SET is_superuser = true WHERE email = 'you@example.com';
+Execute the backend test suite against live test service containers:
+
+```bash
+cd backend
+pytest tests/ -v
 ```
+
+Continuous integration runs automatically on push via [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+---
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Database design](docs/DATABASE.md)
-- [Progress log](docs/PROGRESS.md)
+- [System Architecture](docs/ARCHITECTURE.md)
+- [Database Schema & ERD](docs/DATABASE.md)
+- [Engineering Progress Log](docs/PROGRESS.md)
+
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+This project is licensed under the [MIT License](LICENSE).
