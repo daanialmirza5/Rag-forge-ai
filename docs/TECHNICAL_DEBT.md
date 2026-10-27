@@ -1,7 +1,6 @@
 # RAG Forge AI — Technical Debt & Architectural Audit
 
 **Repository**: `Rag-forge-ai`  
-**Status**: Tier 2 Supporting (Passing pytest IR benchmarks)
 
 ## Prioritized Debt Items
 - **[P1 — High] Asynchronous Document Ingestion Pipeline**: Ingestion of multi-megabyte PDFs runs in-process. Offload chunking and embedding generation to Celery workers.

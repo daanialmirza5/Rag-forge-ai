@@ -19,7 +19,9 @@ class OrganizationSummary:
     workspace_count: int
 
 
-def _counts_query() -> Select[tuple[Organization, int, int]]:
+# Unparameterized on purpose: SQLAlchemy 2.0 spells this Select[tuple[...]] and 2.1
+# spells it Select[...], and requirements.txt allows either.
+def _counts_query() -> Select:
     member_count = (
         select(func.count(OrganizationMember.id))
         .where(OrganizationMember.organization_id == Organization.id)
