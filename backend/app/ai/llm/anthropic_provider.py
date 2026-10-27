@@ -40,7 +40,7 @@ def _output_config(effort: Effort | None) -> OutputConfigParam:
 
 
 def _to_anthropic_messages(messages: list[LLMMessage]) -> list[MessageParam]:
-    return [MessageParam(role=m.role, content=m.content) for m in messages]
+    return [{"role": m.role, "content": m.content} for m in messages]
 
 
 def _usage_from_anthropic(usage: object) -> LLMUsage:
