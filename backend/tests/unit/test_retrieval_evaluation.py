@@ -1,29 +1,25 @@
 """Unit tests for RAG-Forge quantitative retrieval & reranking evaluation engine."""
 
-import unittest
 import math
-from app.ai.evaluation.metrics import (
-    recall_at_k,
-    precision_at_k,
-    mrr_at_k,
-    hit_rate_at_k,
-    dcg_at_k,
-    idcg_at_k,
-    ndcg_at_k,
-    calculate_retrieval_metrics,
-)
+import unittest
+
 from app.ai.evaluation.benchmark_dataset import (
-    BenchmarkDataset,
-    BenchmarkItem,
-    DocumentChunk,
     get_standard_rag_benchmark,
 )
 from app.ai.evaluation.evaluator import (
-    RetrievalStrategy,
     DeterministicBM25Scorer,
-    DeterministicDenseScorer,
-    reciprocal_rank_fusion,
     RetrievalEvaluator,
+    reciprocal_rank_fusion,
+)
+from app.ai.evaluation.metrics import (
+    calculate_retrieval_metrics,
+    dcg_at_k,
+    hit_rate_at_k,
+    idcg_at_k,
+    mrr_at_k,
+    ndcg_at_k,
+    precision_at_k,
+    recall_at_k,
 )
 
 

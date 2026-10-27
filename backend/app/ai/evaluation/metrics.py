@@ -11,10 +11,9 @@ Includes standard, mathematically rigorous implementations of:
 """
 
 import math
-from typing import Dict, List, Set, Union
 
 
-def hit_rate_at_k(retrieved_ids: List[str], relevant_ids: Union[Set[str], List[str]], k: int) -> float:
+def hit_rate_at_k(retrieved_ids: list[str], relevant_ids: set[str] | list[str], k: int) -> float:
     """Computes Hit Rate@K (1.0 if at least one relevant document is in top-K, 0.0 otherwise)."""
     if k <= 0 or not relevant_ids:
         return 0.0
@@ -23,7 +22,7 @@ def hit_rate_at_k(retrieved_ids: List[str], relevant_ids: Union[Set[str], List[s
     return 1.0 if any(doc_id in rel_set for doc_id in top_k) else 0.0
 
 
-def precision_at_k(retrieved_ids: List[str], relevant_ids: Union[Set[str], List[str]], k: int) -> float:
+def precision_at_k(retrieved_ids: list[str], relevant_ids: set[str] | list[str], k: int) -> float:
     """Computes Precision@K: (number of relevant items in top-K) / K."""
     if k <= 0:
         return 0.0
@@ -35,7 +34,7 @@ def precision_at_k(retrieved_ids: List[str], relevant_ids: Union[Set[str], List[
     return hits / float(k)
 
 
-def recall_at_k(retrieved_ids: List[str], relevant_ids: Union[Set[str], List[str]], k: int) -> float:
+def recall_at_k(retrieved_ids: list[str], relevant_ids: set[str] | list[str], k: int) -> float:
     """Computes Recall@K: (number of relevant items in top-K) / (total relevant items)."""
     if k <= 0 or not relevant_ids:
         return 0.0
@@ -45,7 +44,7 @@ def recall_at_k(retrieved_ids: List[str], relevant_ids: Union[Set[str], List[str
     return hits / float(len(rel_set))
 
 
-def mrr_at_k(retrieved_ids: List[str], relevant_ids: Union[Set[str], List[str]], k: int) -> float:
+def mrr_at_k(retrieved_ids: list[str], relevant_ids: set[str] | list[str], k: int) -> float:
     """Computes Reciprocal Rank@K for a single query: 1 / rank of first relevant item, or 0.0."""
     if k <= 0 or not relevant_ids:
         return 0.0
@@ -57,7 +56,7 @@ def mrr_at_k(retrieved_ids: List[str], relevant_ids: Union[Set[str], List[str]],
     return 0.0
 
 
-def dcg_at_k(retrieved_ids: List[str], relevance_scores: Dict[str, float], k: int) -> float:
+def dcg_at_k(retrieved_ids: list[str], relevance_scores: dict[str, float], k: int) -> float:
     """Computes Discounted Cumulative Gain (DCG@K) using standard logarithmic discount:
 
     DCG@K = sum_{i=1}^K (2^{rel_i} - 1) / log_2(i + 1)
@@ -75,7 +74,7 @@ def dcg_at_k(retrieved_ids: List[str], relevance_scores: Dict[str, float], k: in
     return dcg
 
 
-def idcg_at_k(relevance_scores: Dict[str, float], k: int) -> float:
+def idcg_at_k(relevance_scores: dict[str, float], k: int) -> float:
     """Computes Ideal Discounted Cumulative Gain (IDCG@K) by ranking all ground truth scores descending."""
     if k <= 0 or not relevance_scores:
         return 0.0
@@ -89,7 +88,7 @@ def idcg_at_k(relevance_scores: Dict[str, float], k: int) -> float:
     return idcg
 
 
-def ndcg_at_k(retrieved_ids: List[str], relevance_scores: Dict[str, float], k: int) -> float:
+def ndcg_at_k(retrieved_ids: list[str], relevance_scores: dict[str, float], k: int) -> float:
     """Computes Normalized Discounted Cumulative Gain (NDCG@K) = DCG@K / IDCG@K.
 
     Returns a value in [0.0, 1.0].
@@ -102,11 +101,11 @@ def ndcg_at_k(retrieved_ids: List[str], relevance_scores: Dict[str, float], k: i
 
 
 def calculate_retrieval_metrics(
-    retrieved_ids: List[str],
-    ground_truth: Dict[str, float],
-    k_list: List[int] = None,
+    retrieved_ids: list[str],
+    ground_truth: dict[str, float],
+    k_list: list[int] | None = None,
     relevance_threshold: float = 1.0,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Calculates a comprehensive dictionary of retrieval metrics across various K cutoffs."""
     if k_list is None:
         k_list = [1, 3, 5, 10]
@@ -114,7 +113,7 @@ def calculate_retrieval_metrics(
     # Binary relevant set for recall/precision/mrr
     relevant_ids = {doc_id for doc_id, score in ground_truth.items() if score >= relevance_threshold}
 
-    metrics: Dict[str, float] = {}
+    metrics: dict[str, float] = {}
     for k in k_list:
         metrics[f"recall@{k}"] = round(recall_at_k(retrieved_ids, relevant_ids, k), 4)
         metrics[f"precision@{k}"] = round(precision_at_k(retrieved_ids, relevant_ids, k), 4)

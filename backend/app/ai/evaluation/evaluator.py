@@ -13,57 +13,56 @@ import math
 import re
 import time
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Dict, List, Set, Tuple
+from enum import StrEnum
 
 from app.ai.evaluation.benchmark_dataset import BenchmarkDataset, BenchmarkItem, DocumentChunk
-from app.ai.evaluation.metrics import calculate_retrieval_metrics, ndcg_at_k, recall_at_k, mrr_at_k
+from app.ai.evaluation.metrics import calculate_retrieval_metrics
 
 
-class RetrievalStrategy(str, Enum):
+class RetrievalStrategy(StrEnum):
     DENSE_ONLY = "dense_only"
     SPARSE_BM25 = "sparse_bm25"
     HYBRID_RRF = "hybrid_rrf"
     HYBRID_RERANKED = "hybrid_reranked"
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     return [token for token in re.split(r"[^a-zA-Z0-9_]+", text.lower()) if token]
 
 
 class DeterministicBM25Scorer:
     """Zero-dependency reference implementation of Okapi BM25 scoring."""
 
-    def __init__(self, documents: List[DocumentChunk], k1: float = 1.5, b: float = 0.75):
+    def __init__(self, documents: list[DocumentChunk], k1: float = 1.5, b: float = 0.75):
         self.k1 = k1
         self.b = b
         self.documents = documents
         self.num_docs = len(documents)
-        self.doc_tokens: Dict[str, List[str]] = {
+        self.doc_tokens: dict[str, list[str]] = {
             doc.id: _tokenize(f"{doc.content} {' '.join(doc.metadata.values())}")
             for doc in documents
         }
-        self.doc_lengths: Dict[str, int] = {
+        self.doc_lengths: dict[str, int] = {
             doc_id: len(tokens) for doc_id, tokens in self.doc_tokens.items()
         }
         self.avg_doc_len = (
             sum(self.doc_lengths.values()) / float(self.num_docs) if self.num_docs > 0 else 1.0
         )
-        self.doc_freq: Dict[str, int] = {}
+        self.doc_freq: dict[str, int] = {}
         for tokens in self.doc_tokens.values():
             for unique_token in set(tokens):
                 self.doc_freq[unique_token] = self.doc_freq.get(unique_token, 0) + 1
 
-    def score(self, query: str, top_k: int = 10) -> List[Tuple[str, float]]:
+    def score(self, query: str, top_k: int = 10) -> list[tuple[str, float]]:
         query_tokens = _tokenize(query)
         if not query_tokens or self.num_docs == 0:
             return []
 
-        scores: Dict[str, float] = {}
+        scores: dict[str, float] = {}
         for doc_id, tokens in self.doc_tokens.items():
             doc_len = self.doc_lengths[doc_id]
             doc_score = 0.0
-            term_counts: Dict[str, int] = {}
+            term_counts: dict[str, int] = {}
             for t in tokens:
                 term_counts[t] = term_counts.get(t, 0) + 1
 
@@ -85,15 +84,15 @@ class DeterministicBM25Scorer:
 class DeterministicDenseScorer:
     """Semantic vector representation simulator using sublinear TF-IDF and n-gram overlap."""
 
-    def __init__(self, documents: List[DocumentChunk]):
+    def __init__(self, documents: list[DocumentChunk]):
         self.documents = documents
         self.doc_tokens = {
             doc.id: set(_tokenize(f"{doc.content} {doc.domain}")) for doc in documents
         }
 
-    def score(self, query: str, top_k: int = 10) -> List[Tuple[str, float]]:
+    def score(self, query: str, top_k: int = 10) -> list[tuple[str, float]]:
         query_tokens = set(_tokenize(query))
-        scores: Dict[str, float] = {}
+        scores: dict[str, float] = {}
         for doc_id, doc_toks in self.doc_tokens.items():
             if not query_tokens or not doc_toks:
                 scores[doc_id] = 0.0
@@ -107,10 +106,10 @@ class DeterministicDenseScorer:
 
 
 def reciprocal_rank_fusion(
-    dense_ranking: List[str], sparse_ranking: List[str], rrf_k: int = 60, top_k: int = 10
-) -> List[Tuple[str, float]]:
+    dense_ranking: list[str], sparse_ranking: list[str], rrf_k: int = 60, top_k: int = 10
+) -> list[tuple[str, float]]:
     """Reciprocal Rank Fusion (RRF) combining dense and sparse ranking lists."""
-    scores: Dict[str, float] = {}
+    scores: dict[str, float] = {}
     for rank, doc_id in enumerate(dense_ranking):
         scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (rrf_k + rank + 1)
     for rank, doc_id in enumerate(sparse_ranking):
@@ -121,13 +120,13 @@ def reciprocal_rank_fusion(
 
 
 def cross_encoder_rerank(
-    query: str, candidate_doc_ids: List[str], documents_map: Dict[str, DocumentChunk], top_k: int = 10
-) -> List[Tuple[str, float]]:
+    query: str, candidate_doc_ids: list[str], documents_map: dict[str, DocumentChunk], top_k: int = 10
+) -> list[tuple[str, float]]:
     """Simulates cross-encoder second-stage reranker scoring query-candidate chunk interactions."""
     q_tokens = _tokenize(query)
     q_set = set(q_tokens)
 
-    reranked: List[Tuple[str, float]] = []
+    reranked: list[tuple[str, float]] = []
     for doc_id in candidate_doc_ids:
         doc = documents_map.get(doc_id)
         if not doc:
@@ -149,16 +148,16 @@ class QueryEvaluationDetail:
     query_id: str
     query: str
     strategy: RetrievalStrategy
-    retrieved_ids: List[str]
-    metrics: Dict[str, float]
+    retrieved_ids: list[str]
+    metrics: dict[str, float]
 
 
 @dataclass
 class EvaluationResult:
     dataset_name: str
     num_queries: int
-    strategy_results: Dict[str, Dict[str, float]]  # strategy -> metric_name -> avg_score
-    details: List[QueryEvaluationDetail] = field(default_factory=list)
+    strategy_results: dict[str, dict[str, float]]  # strategy -> metric_name -> avg_score
+    details: list[QueryEvaluationDetail] = field(default_factory=list)
     execution_time_ms: float = 0.0
 
 
@@ -173,7 +172,7 @@ class RetrievalEvaluator:
 
     def run_strategy(
         self, item: BenchmarkItem, strategy: RetrievalStrategy, top_k: int = 10
-    ) -> List[str]:
+    ) -> list[str]:
         if strategy == RetrievalStrategy.SPARSE_BM25:
             scored = self.bm25_scorer.score(item.query, top_k=top_k)
             return [doc_id for doc_id, _ in scored]
@@ -197,7 +196,7 @@ class RetrievalEvaluator:
 
         return []
 
-    def evaluate_all(self, k_list: List[int] = None) -> EvaluationResult:
+    def evaluate_all(self, k_list: list[int] | None = None) -> EvaluationResult:
         """Evaluates all 4 retrieval strategies across the benchmark dataset."""
         if k_list is None:
             k_list = [1, 3, 5, 10]
@@ -210,10 +209,10 @@ class RetrievalEvaluator:
             RetrievalStrategy.HYBRID_RERANKED,
         ]
 
-        strategy_metrics_accum: Dict[str, Dict[str, List[float]]] = {
+        strategy_metrics_accum: dict[str, dict[str, list[float]]] = {
             strat.value: {} for strat in strategies
         }
-        details: List[QueryEvaluationDetail] = []
+        details: list[QueryEvaluationDetail] = []
 
         for item in self.dataset.items:
             for strat in strategies:
@@ -236,7 +235,7 @@ class RetrievalEvaluator:
                     strategy_metrics_accum[strat.value][m_name].append(m_val)
 
         # Macro average across queries
-        strategy_results: Dict[str, Dict[str, float]] = {}
+        strategy_results: dict[str, dict[str, float]] = {}
         for strat_name, metric_dict in strategy_metrics_accum.items():
             strategy_results[strat_name] = {
                 m_name: round(sum(vals) / len(vals), 4) if vals else 0.0

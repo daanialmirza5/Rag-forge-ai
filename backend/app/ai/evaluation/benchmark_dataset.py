@@ -8,7 +8,6 @@ Contains structured queries, reference documents, and graded relevance assessmen
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 
 @dataclass
@@ -16,7 +15,7 @@ class DocumentChunk:
     id: str
     content: str
     domain: str
-    metadata: Dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -24,24 +23,24 @@ class BenchmarkItem:
     query_id: str
     query: str
     domain: str
-    ground_truth_relevance: Dict[str, float]  # doc_id -> relevance score (0.0 to 3.0 scale)
-    description: Optional[str] = None
+    ground_truth_relevance: dict[str, float]  # doc_id -> relevance score (0.0 to 3.0 scale)
+    description: str | None = None
 
 
 @dataclass
 class BenchmarkDataset:
     name: str
     version: str
-    documents: List[DocumentChunk]
-    items: List[BenchmarkItem]
+    documents: list[DocumentChunk]
+    items: list[BenchmarkItem]
 
-    def get_document_by_id(self, doc_id: str) -> Optional[DocumentChunk]:
+    def get_document_by_id(self, doc_id: str) -> DocumentChunk | None:
         for doc in self.documents:
             if doc.id == doc_id:
                 return doc
         return None
 
-    def get_all_doc_ids(self) -> List[str]:
+    def get_all_doc_ids(self) -> list[str]:
         return [doc.id for doc in self.documents]
 
 
