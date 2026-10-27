@@ -40,7 +40,15 @@ def _output_config(effort: Effort | None) -> OutputConfigParam:
 
 
 def _to_anthropic_messages(messages: list[LLMMessage]) -> list[MessageParam]:
-    return [{"role": m.role, "content": m.content} for m in messages]
+    return [_to_anthropic_message(m) for m in messages]
+
+
+def _to_anthropic_message(message: LLMMessage) -> MessageParam:
+    # Literal roles let mypy match MessageParam whether the SDK defines it as one
+    # TypedDict or as a union of role-specific TypedDicts.
+    if message.role == "user":
+        return {"role": "user", "content": message.content}
+    return {"role": "assistant", "content": message.content}
 
 
 def _usage_from_anthropic(usage: object) -> LLMUsage:
